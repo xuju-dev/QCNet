@@ -97,10 +97,15 @@ tensorboard==2.13.0
 threadpoolctl==2.2.0
 tomli==2.0.1
 tomlkit==0.11.8
+torch-cluster==1.6.1
+torch_geometric
+pytorch-lightning==2.0.4
+torchmetrics==0.11.4
+torch-scatter==2.1.1
+torch-sparse==0.6.17
 # torch==2.0.1+cu118
 # torchvision==0.15.2+cu118
 # torchaudio==2.0.2+cu118
-torchmetrics==0.11.4
 tqdm==4.65.0
 typing-extensions==4.6.3
 urllib3==1.26.16
