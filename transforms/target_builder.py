@@ -36,11 +36,17 @@ class TargetBuilder(BaseTransform):
         rot_mat[:, 1, 0] = sin
         rot_mat[:, 1, 1] = cos
         data['agent']['target'] = origin.new_zeros(data['agent']['num_nodes'], self.num_future_steps, 4)
-        data['agent']['target'][..., :2] = torch.bmm(data['agent']['position'][:, self.num_historical_steps:, :2] -
+        gt_future_xy = data['agent']['position'][:, self.num_historical_steps:, :2]  # x,y coordinates
+        # future positions in the local frame of the agent
+        data['agent']['target'][..., :2] = torch.bmm(gt_future_xy[:, :self.num_future_steps, :] -
                                                      origin[:, :2].unsqueeze(1), rot_mat)
+        # transforming z-coordinate
+        gt_future_z = data['agent']['position'][:, self.num_historical_steps:, 2]
         if data['agent']['position'].size(2) == 3:
-            data['agent']['target'][..., 2] = (data['agent']['position'][:, self.num_historical_steps:, 2] -
+            data['agent']['target'][..., 2] = (gt_future_z[:, :self.num_future_steps] -
                                                origin[:, 2].unsqueeze(-1))
-        data['agent']['target'][..., 3] = wrap_angle(data['agent']['heading'][:, self.num_historical_steps:] -
+        # local heading
+        gt_future_heading = data['agent']['heading'][:, self.num_historical_steps:]
+        data['agent']['target'][..., 3] = wrap_angle(gt_future_heading[:, :self.num_future_steps] -
                                                      theta.unsqueeze(-1))
         return data

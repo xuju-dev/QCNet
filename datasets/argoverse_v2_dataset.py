@@ -89,7 +89,8 @@ class ArgoverseV2Dataset(Dataset):
         self.split = split
 
         if raw_dir is None:
-            raw_dir = os.path.join(root, split, 'raw')
+            raw_dir = os.path.join(root, split)
+            print("raw_dir: ", raw_dir)
             self._raw_dir = raw_dir
             if os.path.isdir(self._raw_dir):
                 self._raw_file_names = [name for name in os.listdir(self._raw_dir) if
@@ -106,7 +107,8 @@ class ArgoverseV2Dataset(Dataset):
                 self._raw_file_names = []
 
         if processed_dir is None:
-            processed_dir = os.path.join(root, split, 'processed')
+            processed_dir = os.path.join(root, 'qcnet_processed_22072025', split)
+            print("processed_dir1: ", processed_dir)
             self._processed_dir = processed_dir
             if os.path.isdir(self._processed_dir):
                 self._processed_file_names = [name for name in os.listdir(self._processed_dir) if
@@ -117,6 +119,7 @@ class ArgoverseV2Dataset(Dataset):
         else:
             processed_dir = os.path.expanduser(os.path.normpath(processed_dir))
             self._processed_dir = processed_dir
+            print("processed_dir: ", processed_dir)
             if os.path.isdir(self._processed_dir):
                 self._processed_file_names = [name for name in os.listdir(self._processed_dir) if
                                               os.path.isfile(os.path.join(self._processed_dir, name)) and
@@ -182,6 +185,8 @@ class ArgoverseV2Dataset(Dataset):
         os.rmdir(os.path.join(self.raw_dir, self.split))
 
     def process(self) -> None:
+        self._num_samples = len(self.raw_file_names)
+        print("self._num_samples: ", len(self))
         for raw_file_name in tqdm(self.raw_file_names):
             df = pd.read_parquet(os.path.join(self.raw_dir, raw_file_name, f'scenario_{raw_file_name}.parquet'))
             map_dir = Path(self.raw_dir) / raw_file_name
@@ -218,9 +223,9 @@ class ArgoverseV2Dataset(Dataset):
         av_idx = agent_ids.index('AV')
 
         # initialization
-        valid_mask = torch.zeros(num_agents, self.num_steps, dtype=torch.bool)
-        current_valid_mask = torch.zeros(num_agents, dtype=torch.bool)
-        predict_mask = torch.zeros(num_agents, self.num_steps, dtype=torch.bool)
+        valid_mask = torch.zeros(num_agents, self.num_steps, dtype=torch.bool)  # valid_mask[agent_idx, t] = True if agent_idx has valid data at time step t
+        current_valid_mask = torch.zeros(num_agents, dtype=torch.bool)  # marks agent valid for current, if last historical step has valid data
+        predict_mask = torch.zeros(num_agents, self.num_steps, dtype=torch.bool)  # predict_mask[agent_idx, t] = True if agent_idx is to be predicted at time step t
         agent_id: List[Optional[str]] = [None] * num_agents
         agent_type = torch.zeros(num_agents, dtype=torch.uint8)
         agent_category = torch.zeros(num_agents, dtype=torch.uint8)
@@ -232,16 +237,20 @@ class ArgoverseV2Dataset(Dataset):
             agent_idx = agent_ids.index(track_id)
             agent_steps = track_df['timestep'].values
 
-            valid_mask[agent_idx, agent_steps] = True
-            current_valid_mask[agent_idx] = valid_mask[agent_idx, self.num_historical_steps - 1]
+            valid_mask[agent_idx, agent_steps] = True  # mark timesteps for an agent that has valid data
+            current_valid_mask[agent_idx] = valid_mask[agent_idx, self.num_historical_steps - 1] # marks agent valid for current, if last historical step has valid data
             predict_mask[agent_idx, agent_steps] = True
-            if self.vector_repr:  # a time step t is valid only when both t and t-1 are valid
+
+            if self.vector_repr:  
+                # a time step t is valid only when both t and t-1 are valid => update valid_mask
                 valid_mask[agent_idx, 1: self.num_historical_steps] = (
                         valid_mask[agent_idx, :self.num_historical_steps - 1] &
                         valid_mask[agent_idx, 1: self.num_historical_steps])
-                valid_mask[agent_idx, 0] = False
-            predict_mask[agent_idx, :self.num_historical_steps] = False
+                valid_mask[agent_idx, 0] = False  # the first time step is always invalid because it has no previous time step
+
+            predict_mask[agent_idx, :self.num_historical_steps] = False  # no prediction for historical steps
             if not current_valid_mask[agent_idx]:
+                # if the last historical step has no valid data, then no prediction for future steps
                 predict_mask[agent_idx, self.num_historical_steps:] = False
 
             agent_id[agent_idx] = track_id
@@ -512,23 +521,36 @@ class ArgoverseV2Dataset(Dataset):
 
     def _download(self) -> None:
         # if complete raw/processed files exist, skip downloading
+        print("len(self.raw_file_names): ", len(self.raw_file_names))
+        print("len num samples: ", len(self))
+        # HINT: len(self) is the number of samples in the dataset
         if ((os.path.isdir(self.raw_dir) and len(self.raw_file_names) == len(self)) or
                 (os.path.isdir(self.processed_dir) and len(self.processed_file_names) == len(self))):
             return
         self._processed_file_names = []
-        self.download()
+        # self.download()
 
     def _process(self) -> None:
-        # if complete processed files exist, skip processing
-        if os.path.isdir(self.processed_dir) and len(self.processed_file_names) == len(self):
-            return
+        reset_preprocess = False  # tmp var, set to True if you want to delete existing processed files
         print('Processing...', file=sys.stderr)
-        if os.path.isdir(self.processed_dir):
-            for name in os.listdir(self.processed_dir):
-                if name.endswith(('pkl', 'pickle')):
-                    os.remove(os.path.join(self.processed_dir, name))
+        # if complete processed files exist, skip processing
+        print("len(self.processed_file_names): ", len(self.processed_file_names))
+        print("num_samples: ", len(self))
+        if os.path.isdir(self.processed_dir) and len(self.processed_file_names) == len(self):
+            print('Processed files already exist, skipping processing.', file=sys.stderr)
+            return
+        if reset_preprocess:
+            print('Resetting processed files...', file=sys.stderr)
+            if os.path.isdir(self.processed_dir):
+                for name in os.listdir(self.processed_dir):
+                    if name.endswith(('pkl', 'pickle')):
+                        os.remove(os.path.join(self.processed_dir, name))
+            else:
+                os.makedirs(self.processed_dir)
         else:
-            os.makedirs(self.processed_dir)
+            if not os.path.isdir(self.processed_dir):
+                os.makedirs(self.processed_dir)
+
         self._processed_file_names = [f'{raw_file_name}.pkl' for raw_file_name in self.raw_file_names]
         self.process()
         print('Done!', file=sys.stderr)
