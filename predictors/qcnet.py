@@ -212,6 +212,8 @@ class QCNet(pl.LightningModule):
         if isinstance(data, Batch):
             data['agent']['av_index'] += data['agent']['ptr'][:-1]
         reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:]
+        reg_mask = reg_mask[:, :self.num_future_steps]
+        print("reg_mask.shape: ", reg_mask.shape)
         cls_mask = data['agent']['predict_mask'][:, -1]
         pred = self(data)
         if self.output_head:

@@ -108,18 +108,18 @@ class ArgoverseV2Dataset(Dataset):
 
         if processed_dir is None:
             processed_dir = os.path.join(root, 'qcnet_processed_22072025', split)
-            print("processed_dir1: ", processed_dir)
             self._processed_dir = processed_dir
             if os.path.isdir(self._processed_dir):
                 self._processed_file_names = [name for name in os.listdir(self._processed_dir) if
                                               os.path.isfile(os.path.join(self._processed_dir, name)) and
                                               name.endswith(('pkl', 'pickle'))]
+                # print("inside __init__() after it is filled with names: len(self._processed_file_names): ", len(self._processed_file_names))
+                # print("inside __init__() after it is filled with names: len(self.processed_file_names): ", len(self.processed_file_names))
             else:
                 self._processed_file_names = []
         else:
             processed_dir = os.path.expanduser(os.path.normpath(processed_dir))
             self._processed_dir = processed_dir
-            print("processed_dir: ", processed_dir)
             if os.path.isdir(self._processed_dir):
                 self._processed_file_names = [name for name in os.listdir(self._processed_dir) if
                                               os.path.isfile(os.path.join(self._processed_dir, name)) and
@@ -186,7 +186,6 @@ class ArgoverseV2Dataset(Dataset):
 
     def process(self) -> None:
         self._num_samples = len(self.raw_file_names)
-        print("self._num_samples: ", len(self))
         for raw_file_name in tqdm(self.raw_file_names):
             df = pd.read_parquet(os.path.join(self.raw_dir, raw_file_name, f'scenario_{raw_file_name}.parquet'))
             map_dir = Path(self.raw_dir) / raw_file_name
@@ -521,21 +520,23 @@ class ArgoverseV2Dataset(Dataset):
 
     def _download(self) -> None:
         # if complete raw/processed files exist, skip downloading
-        print("len(self.raw_file_names): ", len(self.raw_file_names))
-        print("len num samples: ", len(self))
+        # print("inside _download(): len(self.raw_file_names): ", len(self.raw_file_names))
+        # print("inside _download(): len(self.processed_file_names): ", len(self.processed_file_names))
+        # print("inside _download(): len(self): ", len(self))
+        self._num_samples = len(self.processed_file_names)
         # HINT: len(self) is the number of samples in the dataset
         if ((os.path.isdir(self.raw_dir) and len(self.raw_file_names) == len(self)) or
                 (os.path.isdir(self.processed_dir) and len(self.processed_file_names) == len(self))):
             return
-        self._processed_file_names = []
+        print("Fake Downloading still")
+        # self._processed_file_names = []
         # self.download()
 
     def _process(self) -> None:
         reset_preprocess = False  # tmp var, set to True if you want to delete existing processed files
+        self._num_samples = len(self.processed_file_names)
         print('Processing...', file=sys.stderr)
         # if complete processed files exist, skip processing
-        print("len(self.processed_file_names): ", len(self.processed_file_names))
-        print("num_samples: ", len(self))
         if os.path.isdir(self.processed_dir) and len(self.processed_file_names) == len(self):
             print('Processed files already exist, skipping processing.', file=sys.stderr)
             return

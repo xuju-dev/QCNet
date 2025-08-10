@@ -2,9 +2,6 @@ from pathlib import Path
 import numpy as np
 from matplotlib import pyplot as plt
 import torch
-import pytorch_lightning as pl
-from hydra import compose, initialize
-from hydra.utils import instantiate
 
 from av2.map.map_api import ArgoverseStaticMap
 from av2.datasets.motion_forecasting import scenario_serialization
@@ -202,14 +199,14 @@ def load_scenario_and_map(scenario_id: str, split: str, dataset_root: str) -> tu
 
 
 def local_to_global(traj_local, last_pos, last_heading):
-    """Convert [T, 2] trajectory from local to global using rotation and translation."""
+    """Convert [T, 2] trajectory from global to local using rotation and translation."""
     cos_h = torch.cos(last_heading)
     sin_h = torch.sin(last_heading)
     R = torch.tensor([[cos_h, -sin_h], [sin_h, cos_h]])
 
     return traj_local @ R.T + last_pos
 
-def extract_predicted_traj(preds, last_pos, last_heading):
+def extract_predicted_traj(preds, last_pos, last_heading, batch_idx):
     """
     Extracts predicted trajectories and returns them as polylines.
 
@@ -218,69 +215,74 @@ def extract_predicted_traj(preds, last_pos, last_heading):
     Returns:
         List of polylines, each polyline is a numpy array of shape [T, 2].
     """
-    refined_traj = preds['loc_refine_pos']
-    best_mode = preds['pi'].argmax(dim=1)
-    predicted_trajectories = torch.stack([
-        refined_traj[i, best_mode[i]] for i in range(refined_traj.shape[0])
-    ])
-    print("predicted_trajectories.shape: ", predicted_trajectories.shape)
+    refined_traj = preds['loc_refine_pos']  # [28, A, T, 2]
+    pi = preds['pi']  # [28, A] best mode (pred_traj) for each sample
+    A, T, _ = refined_traj[batch_idx] .shape  # A: num_agents, T: number of steps
+
+    # Get best mode for this batch sample (shape: scalar)
+    best_modes = pi.argmax(dim=1)  # [28] best mode for each sample
+
+    predicted_trajectories = torch.stack([refined_traj[batch_idx, m] for m in best_modes])  # best pred_traj per sample
     predicted_trajectories = local_to_global(predicted_trajectories, last_pos, last_heading)
 
     return predicted_trajectories
 
-def extract_targets(labels, batch_idx: int, agent_idx: int, all_agents: bool):
-    target = labels['target']  # [B, A, 60, 2]
-    t_mask = labels['target_mask']  # [B, A, 60]
-    masked_target = target * t_mask.unsqueeze(-1)  # shape: [B, A, 60, 2]
 
-    B, A, T, _ = target.shape
-    if batch_idx > B or agent_idx > A:
-        raise IndexError(f"Batch index {batch_idx} or agent index {agent_idx} out of range: B={B}, A={A}")
+def extract_gt_traj(batch, batch_idx: int, step_start: int, step_end: int, agent_idx: int, all_agents: bool = False):
+    pos = batch['agent']['position'][..., :2]  # [batch_size, 110, 2]
+    valid_mask = batch['agent']['valid_mask'][agent_idx]  # [110] dim1 = true value if history
+    predict_mask = batch['agent']['predict_mask'][agent_idx]  # [110] dim1 = true value if prediction
 
-    centers = labels['origin']
-    angles = labels['theta']
+    valid_mask *= predict_mask
+    valid_pos = pos[agent_idx][valid_mask]  # [60, 2]
+
+    gt_pos = valid_pos[step_start:step_end]  # [num_steps, 2]
+
+    # B, A, T, _ = target.shape
+    # if batch_idx > B or agent_idx > A:
+    #     raise IndexError(f"Batch index {batch_idx} or agent index {agent_idx} out of range: B={B}, A={A}")
+
+    center = batch['agent']['position'][..., :2][agent_idx, step_start - 1][:2]  # first pos as origin
+    angle = batch['agent']['heading'][agent_idx][step_start - 1]  # first heading as theta
 
     trajectories = []
-    if all_agents:
-        # print("Collecting all agents...")
-        for a in range(A):
-            traj = masked_target[batch_idx, a]  # [T, 2]
-            polyline = local_to_global(traj, centers[batch_idx], angles[batch_idx])
-            polyline = polyline.cpu().numpy()  # Convert to NumPy
-            trajectories.append(polyline)     # [T, 2]
-    else:
-        # print(f"Collecting agent {agent_idx}...")
-        traj = masked_target[batch_idx, agent_idx]  # [T, 2]
-        polyline = local_to_global(traj, centers[batch_idx], angles[batch_idx])
-        polyline = polyline.cpu().numpy()  # Convert to NumPy
-        trajectories.append(polyline)     # [T, 2]
+    # if all_agents:
+    #     print("Collecting all agents...")
+    #     for a in range(A):
+    #         traj = masked_target[batch_idx, a]  # [T, 2]
+    #         polyline = local_to_global(traj, centers[batch_idx], angles[batch_idx])
+    #         polyline = polyline.cpu().numpy()  # Convert to NumPy
+    #         trajectories.append(polyline)     # [T, 2]
+    # else:
+    print(f"Collecting agent {agent_idx}...")
+    polyline = local_to_global(gt_pos, center, angle)
+    polyline = gt_pos.cpu().numpy()  # Convert to NumPy
+    trajectories.append(polyline)     # [T, 2]
 
     return trajectories
 
 
 def visualize_agents(ax, dataset_root, scenario_id, split):
     scenario, scenario_map = load_scenario_and_map(scenario_id, split, dataset_root)
-    _plot_actor_tracks(ax, scenario, timestep=60)
+    _plot_actor_tracks(ax, scenario, timestep=60)  # plot focal agent to timestep 20
 
 
-def visualize_history(ax, dataset_root, scenario_id, split):
-    scenario, scenario_map = load_scenario_and_map(scenario_id, split, dataset_root)
-    history_traj = []
-    _plot_polylines(history_traj, line_width=1, color='grey')
+def visualize_history(ax, batch, num_hist_steps, agent_idx=0):
+    history_polylines = extract_gt_traj(batch=batch, batch_idx=0, step_start=0, step_end=num_hist_steps, agent_idx=agent_idx, all_agents=False)
+    _plot_polylines(history_polylines, line_width=1, color='grey')
     pred_lines = plt.gca().lines[-1]
     pred_lines.set_label('History')
 
 
-def visualize_gt_trajectories(ax, dataset_root, scenario_id, split):
-    scenario, scenario_map = load_scenario_and_map(scenario_id, split, dataset_root)
-    target_trajectories = []
-    # target_trajectories = extract_targets(labels, batch_idx=sample_idx, all_agents=all_agents_bool, agent_idx=agent_idx)
+def visualize_gt_trajectories(ax, batch, num_history_steps, num_future_steps, agent_idx=0):
+    end_timestep = num_history_steps + num_future_steps
+    target_trajectories = extract_gt_traj(batch=batch, batch_idx=0, step_start=num_history_steps, step_end=end_timestep, agent_idx=agent_idx, all_agents=False)
     _plot_polylines(target_trajectories, line_width=1, color='green')
     pred_lines = plt.gca().lines[-1]
     pred_lines.set_label('Target')
 
 
-def visualize_prediction(ax, predictions):
+def visualize_prediction(ax, predictions, last_pos, last_heading, batch_idx):
     """
     Visualize one sample from the batch and plot the predicted trajectories.
 
@@ -288,25 +290,83 @@ def visualize_prediction(ax, predictions):
         ax: plot reference
         predictions: model output
     """
-    predicted_trajectories = extract_predicted_traj(predictions)
+    predicted_trajectories = extract_predicted_traj(predictions, last_pos, last_heading, batch_idx=batch_idx)
     _plot_polylines(predicted_trajectories, line_width=0.5)
     pred_lines = plt.gca().lines[-1]
     pred_lines.set_label('Prediction')
 
 
-def visualize_inference_scenario(ax, dataset_root, scenario_id, split, preds, num_history_steps, num_future_steps):
+def visualize_inference_scenario(ax, batch, dataset_root, scenario_id, split, preds, num_history_steps, num_future_steps):
     # Visualizing map
     AV2MapVisualizer(dataset_path=dataset_root).show_map(ax, split=split, seq_id=scenario_id)
 
     # Visualizing agents
     visualize_agents(ax, dataset_root, scenario_id, split)
-    
+
     # Visualizing history
     visualize_history(ax, dataset_root, scenario_id, split)
 
     # Visualizing gt
-    # visualize_gt_trajectories(ax, DATASET_ROOT, scenario_id, split)
-    
+    visualize_gt_trajectories(ax, batch, dataset_root, scenario_id, split, num_history_steps, num_future_steps)
+
     # Visualizing predicted trajectories
     visualize_prediction(ax, preds)
     # print("Plotting predicted trajectories: DONE")
+
+
+def visualize_qcnet_preds(batch, preds, mode='best', max_agents=4):
+    """
+    Visualize predicted trajectories for focal agents in batch.
+
+    Args:
+        batch: HeteroDataBatch from DataLoader.
+        preds: dict from QCNet model forward pass.
+        mode: 'best' for highest-prob mode, 'all' for all modes.
+        max_agents: max number of focal agents to plot.
+
+    """
+    batch_agent = batch['agent']
+    print("batch_agent['predict_mask'].shape: ", batch_agent['predict_mask'].shape)
+
+    # Get focal agents mask (bool tensor)
+    focal_mask = batch_agent.predict_mask  # shape: [num_agents]
+    print("focal_mask.shape: ", focal_mask.shape)
+    if focal_mask.sum() == 0:
+        print("No focal agents to visualize in this batch.")
+        return
+
+    # Extract focal agents' indices
+    focal_indices = torch.nonzero(focal_mask).squeeze(1)
+
+    # Limit number of agents to visualize for clarity
+    focal_indices = focal_indices[:max_agents]
+
+    # Gather predictions and historical positions
+    loc_refine_pos = preds['loc_refine_pos'][focal_indices]  # [N, 6, 40, 2]
+    pi = preds['pi'][focal_indices]  # [N, 6]
+
+    # Historical positions from batch (assuming shape [num_agents, hist_len, 2])
+    # Adapt according to your dataset field names
+    hist_pos = batch_agent.position[focal_indices][:, :batch_agent.num_historical_steps, :]  # [N, hist_len, 2]
+
+    for i, agent_idx in enumerate(focal_indices):
+        plt.figure(figsize=(6, 6))
+
+        # Plot history (past trajectory)
+        hist = hist_pos[i].cpu().numpy()
+        plt.plot(hist[:, 0], hist[:, 1], 'k-', label='History')
+
+        # Plot predictions
+        if mode == 'best':
+            best_mode = pi[i].argmax().item()
+            traj = loc_refine_pos[i, best_mode].cpu().numpy()  # [40, 2]
+            plt.plot(traj[:, 0], traj[:, 1], 'r-', label='Best predicted')
+        elif mode == 'all':
+            for m in range(loc_refine_pos.shape[1]):
+                traj = loc_refine_pos[i, m].cpu().numpy()
+                alpha = pi[i, m].item()  # use mode prob as alpha
+                plt.plot(traj[:, 0], traj[:, 1], alpha=alpha, label=f'Mode {m}')
+        else:
+            raise ValueError("mode must be 'best' or 'all'")
+
+        plt.scatter(hist[-1, 0], hist[-1, 1], c='black', s=50, marker='o')  # last observed point
