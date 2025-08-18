@@ -40,17 +40,21 @@ class minAHE(Metric):
                min_criterion: str = 'FDE') -> None:
         pred, target, prob, valid_mask, _ = valid_filter(pred, target, prob, valid_mask, None, keep_invalid_final_step)
         pred_topk, _ = topk(self.max_guesses, pred, prob)
+
+        num_hist_steps = target.shape[1] - pred.shape[2]  # total steps (60) - prediction (future) steps (40)
+        # update target to future steps frame
+        target_future_steps_frame = target[:, num_hist_steps:, :]
         if min_criterion == 'FDE':
             inds_last = (valid_mask * torch.arange(1, valid_mask.size(-1) + 1, device=self.device)).argmax(dim=-1)
             inds_best = torch.norm(
                 pred_topk[torch.arange(pred.size(0)), :, inds_last, :-1] -
-                target[torch.arange(pred.size(0)), inds_last, :-1].unsqueeze(-2), p=2, dim=-1).argmin(dim=-1)
+                target_future_steps_frame[torch.arange(pred.size(0)), inds_last, :-1].unsqueeze(-2), p=2, dim=-1).argmin(dim=-1)
         elif min_criterion == 'ADE':
-            inds_best = (torch.norm(pred_topk[..., :-1] - target[..., :-1].unsqueeze(1), p=2, dim=-1) *
+            inds_best = (torch.norm(pred_topk[..., :-1] - target_future_steps_frame[..., :-1].unsqueeze(1), p=2, dim=-1) *
                          valid_mask.unsqueeze(1)).sum(dim=-1).argmin(dim=-1)
         else:
             raise ValueError('{} is not a valid criterion'.format(min_criterion))
-        self.sum += ((wrap_angle(pred_topk[torch.arange(pred.size(0)), inds_best, :, -1] - target[..., -1]).abs() *
+        self.sum += ((wrap_angle(pred_topk[torch.arange(pred.size(0)), inds_best, :, -1] - target_future_steps_frame[..., -1]).abs() *
                       valid_mask).sum(dim=-1) / valid_mask.sum(dim=-1)).sum()
         self.count += pred.size(0)
 

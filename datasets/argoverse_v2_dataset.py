@@ -107,7 +107,7 @@ class ArgoverseV2Dataset(Dataset):
                 self._raw_file_names = []
 
         if processed_dir is None:
-            processed_dir = os.path.join(root, 'qcnet_processed_22072025', split)
+            processed_dir = os.path.join(root, 'qcnet_processed_15082025', split)
             self._processed_dir = processed_dir
             if os.path.isdir(self._processed_dir):
                 self._processed_file_names = [name for name in os.listdir(self._processed_dir) if
@@ -240,7 +240,7 @@ class ArgoverseV2Dataset(Dataset):
             current_valid_mask[agent_idx] = valid_mask[agent_idx, self.num_historical_steps - 1] # marks agent valid for current, if last historical step has valid data
             predict_mask[agent_idx, agent_steps] = True
 
-            if self.vector_repr:  
+            if self.vector_repr: 
                 # a time step t is valid only when both t and t-1 are valid => update valid_mask
                 valid_mask[agent_idx, 1: self.num_historical_steps] = (
                         valid_mask[agent_idx, :self.num_historical_steps - 1] &
@@ -519,12 +519,14 @@ class ArgoverseV2Dataset(Dataset):
             return HeteroData(pickle.load(handle))
 
     def _download(self) -> None:
-        # if complete raw/processed files exist, skip downloading
         # print("inside _download(): len(self.raw_file_names): ", len(self.raw_file_names))
         # print("inside _download(): len(self.processed_file_names): ", len(self.processed_file_names))
         # print("inside _download(): len(self): ", len(self))
         self._num_samples = len(self.processed_file_names)
+        # print(f"len(self) after assigning it to num_processed_file_names: {len(self)}")
         # HINT: len(self) is the number of samples in the dataset
+
+        # if complete raw/processed files exist, skip downloading
         if ((os.path.isdir(self.raw_dir) and len(self.raw_file_names) == len(self)) or
                 (os.path.isdir(self.processed_dir) and len(self.processed_file_names) == len(self))):
             return

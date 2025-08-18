@@ -55,7 +55,7 @@ mpmath==1.2.1
 msgpack==1.0.3
 multidict==6.0.2
 networkx==2.8.4
-numpy==1.24.3
+# numpy==1.24.3
 oauthlib==3.2.2
 packaging==23.0
 pillow==9.4.0

@@ -163,7 +163,7 @@ class QCNet(pl.LightningModule):
                       batch_idx):
         if isinstance(data, Batch):
             data['agent']['av_index'] += data['agent']['ptr'][:-1]
-        reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:]
+        reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:self.num_historical_steps + self.num_future_steps]
         cls_mask = data['agent']['predict_mask'][:, -1]
         pred = self(data)
         if self.output_head:
@@ -181,18 +181,18 @@ class QCNet(pl.LightningModule):
             traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
                                      pred['scale_refine_pos'][..., :self.output_dim]], dim=-1)
         pi = pred['pi']
-        gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)
+        gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)  # e.g. [42, 60, 3]
         l2_norm = (torch.norm(traj_propose[..., :self.output_dim] -
-                              gt[..., :self.output_dim].unsqueeze(1), p=2, dim=-1) * reg_mask.unsqueeze(1)).sum(dim=-1)
+                              gt[:, self.num_historical_steps:, :self.output_dim].unsqueeze(1), p=2, dim=-1) * reg_mask.unsqueeze(1)).sum(dim=-1)
         best_mode = l2_norm.argmin(dim=-1)
         traj_propose_best = traj_propose[torch.arange(traj_propose.size(0)), best_mode]
         traj_refine_best = traj_refine[torch.arange(traj_refine.size(0)), best_mode]
         reg_loss_propose = self.reg_loss(traj_propose_best,
-                                         gt[..., :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
+                                         gt[:, self.num_historical_steps:, :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
         reg_loss_propose = reg_loss_propose.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
         reg_loss_propose = reg_loss_propose.mean()
         reg_loss_refine = self.reg_loss(traj_refine_best,
-                                        gt[..., :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
+                                        gt[:, self.num_historical_steps:, :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
         reg_loss_refine = reg_loss_refine.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
         reg_loss_refine = reg_loss_refine.mean()
         cls_loss = self.cls_loss(pred=traj_refine[:, :, -1:].detach(),
@@ -211,9 +211,7 @@ class QCNet(pl.LightningModule):
                         batch_idx):
         if isinstance(data, Batch):
             data['agent']['av_index'] += data['agent']['ptr'][:-1]
-        reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:]
-        reg_mask = reg_mask[:, :self.num_future_steps]
-        print("reg_mask.shape: ", reg_mask.shape)
+        reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:self.num_historical_steps + self.num_future_steps]
         cls_mask = data['agent']['predict_mask'][:, -1]
         pred = self(data)
         if self.output_head:
@@ -233,16 +231,16 @@ class QCNet(pl.LightningModule):
         pi = pred['pi']
         gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)
         l2_norm = (torch.norm(traj_propose[..., :self.output_dim] -
-                              gt[..., :self.output_dim].unsqueeze(1), p=2, dim=-1) * reg_mask.unsqueeze(1)).sum(dim=-1)
+                              gt[:, self.num_historical_steps:, :self.output_dim].unsqueeze(1), p=2, dim=-1) * reg_mask.unsqueeze(1)).sum(dim=-1)
         best_mode = l2_norm.argmin(dim=-1)
         traj_propose_best = traj_propose[torch.arange(traj_propose.size(0)), best_mode]
         traj_refine_best = traj_refine[torch.arange(traj_refine.size(0)), best_mode]
         reg_loss_propose = self.reg_loss(traj_propose_best,
-                                         gt[..., :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
+                                         gt[:, self.num_historical_steps:, :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
         reg_loss_propose = reg_loss_propose.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
         reg_loss_propose = reg_loss_propose.mean()
         reg_loss_refine = self.reg_loss(traj_refine_best,
-                                        gt[..., :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
+                                        gt[:, self.num_historical_steps:, :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
         reg_loss_refine = reg_loss_refine.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
         reg_loss_refine = reg_loss_refine.mean()
         cls_loss = self.cls_loss(pred=traj_refine[:, :, -1:].detach(),

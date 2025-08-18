@@ -38,16 +38,20 @@ class minADE(Metric):
                keep_invalid_final_step: bool = True,
                min_criterion: str = 'FDE') -> None:
         pred, target, prob, valid_mask, _ = valid_filter(pred, target, prob, valid_mask, None, keep_invalid_final_step)
-        pred_topk, _ = topk(self.max_guesses, pred, prob)
+        pred_topk, _ = topk(self.max_guesses, pred, prob)  # pred_topk shape: [batch_size, max_guesses, num_future_steps, 2]
+
+        num_hist_steps = target.shape[1] - pred.shape[2]  # total steps (60) - prediction (future) steps (40)
+        # update target to future steps frame
+        target_future_steps_frame = target[:, num_hist_steps:, :]
         if min_criterion == 'FDE':
             inds_last = (valid_mask * torch.arange(1, valid_mask.size(-1) + 1, device=self.device)).argmax(dim=-1)
             inds_best = torch.norm(
                 pred_topk[torch.arange(pred.size(0)), :, inds_last] -
                 target[torch.arange(pred.size(0)), inds_last].unsqueeze(-2), p=2, dim=-1).argmin(dim=-1)
-            self.sum += ((torch.norm(pred_topk[torch.arange(pred.size(0)), inds_best] - target, p=2, dim=-1) *
+            self.sum += ((torch.norm(pred_topk[torch.arange(pred.size(0)), inds_best] - target_future_steps_frame, p=2, dim=-1) *
                           valid_mask).sum(dim=-1) / valid_mask.sum(dim=-1)).sum()
         elif min_criterion == 'ADE':
-            self.sum += ((torch.norm(pred_topk - target.unsqueeze(1), p=2, dim=-1) *
+            self.sum += ((torch.norm(pred_topk - target_future_steps_frame.unsqueeze(1), p=2, dim=-1) *
                           valid_mask.unsqueeze(1)).sum(dim=-1).min(dim=-1)[0] / valid_mask.sum(dim=-1)).sum()
         else:
             raise ValueError('{} is not a valid criterion'.format(min_criterion))
