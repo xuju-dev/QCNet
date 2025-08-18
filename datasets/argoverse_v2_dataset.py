@@ -107,7 +107,7 @@ class ArgoverseV2Dataset(Dataset):
                 self._raw_file_names = []
 
         if processed_dir is None:
-            processed_dir = os.path.join(root, 'qcnet_processed_15082025', split)
+            processed_dir = os.path.join(root, 'qcnet_processed_18082025', split)
             self._processed_dir = processed_dir
             if os.path.isdir(self._processed_dir):
                 self._processed_file_names = [name for name in os.listdir(self._processed_dir) if
