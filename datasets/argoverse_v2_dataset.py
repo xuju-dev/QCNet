@@ -537,7 +537,7 @@ class ArgoverseV2Dataset(Dataset):
     def _process(self) -> None:
         reset_preprocess = False  # tmp var, set to True if you want to delete existing processed files
         self._num_samples = len(self.processed_file_names)
-        print('Processing...', file=sys.stderr)
+        
         # if complete processed files exist, skip processing
         if os.path.isdir(self.processed_dir) and len(self.processed_file_names) == len(self):
             print('Processed files already exist, skipping processing.', file=sys.stderr)
@@ -555,5 +555,6 @@ class ArgoverseV2Dataset(Dataset):
                 os.makedirs(self.processed_dir)
 
         self._processed_file_names = [f'{raw_file_name}.pkl' for raw_file_name in self.raw_file_names]
+        print('Processing...', file=sys.stderr)
         self.process()
         print('Done!', file=sys.stderr)
