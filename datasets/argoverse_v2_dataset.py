@@ -92,6 +92,7 @@ class ArgoverseV2Dataset(Dataset):
             raw_dir = os.path.join(root, split)
             print("raw_dir: ", raw_dir)
             self._raw_dir = raw_dir
+            os.makedirs(self._raw_dir, exist_ok=True)
             if os.path.isdir(self._raw_dir):
                 self._raw_file_names = [name for name in os.listdir(self._raw_dir) if
                                         os.path.isdir(os.path.join(self._raw_dir, name))]
@@ -105,9 +106,8 @@ class ArgoverseV2Dataset(Dataset):
                                         os.path.isdir(os.path.join(self._raw_dir, name))]
             else:
                 self._raw_file_names = []
-
         if processed_dir is None:
-            processed_dir = os.path.join(root, 'qcnet_processed_18082025', split)
+            processed_dir = os.path.join(root, f'qcnet_processed', split)
             self._processed_dir = processed_dir
             if os.path.isdir(self._processed_dir):
                 self._processed_file_names = [name for name in os.listdir(self._processed_dir) if
@@ -186,6 +186,9 @@ class ArgoverseV2Dataset(Dataset):
 
     def process(self) -> None:
         self._num_samples = len(self.raw_file_names)
+        print('num_samples:', self._num_samples)
+        assert self._num_samples > 0, "Number of samples is 0. Please check if the raw data is correctly placed."
+
         for raw_file_name in tqdm(self.raw_file_names):
             df = pd.read_parquet(os.path.join(self.raw_dir, raw_file_name, f'scenario_{raw_file_name}.parquet'))
             map_dir = Path(self.raw_dir) / raw_file_name
@@ -234,8 +237,9 @@ class ArgoverseV2Dataset(Dataset):
 
         for track_id, track_df in df.groupby('track_id'):
             agent_idx = agent_ids.index(track_id)
+            track_df = track_df[track_df['timestep'] < self.num_steps]
             agent_steps = track_df['timestep'].values
-
+            
             valid_mask[agent_idx, agent_steps] = True  # mark timesteps for an agent that has valid data
             current_valid_mask[agent_idx] = valid_mask[agent_idx, self.num_historical_steps - 1] # marks agent valid for current, if last historical step has valid data
             predict_mask[agent_idx, agent_steps] = True
@@ -258,7 +262,7 @@ class ArgoverseV2Dataset(Dataset):
             position[agent_idx, agent_steps, :2] = torch.from_numpy(np.stack([track_df['position_x'].values,
                                                                               track_df['position_y'].values],
                                                                              axis=-1)).float()
-            heading[agent_idx, agent_steps] = torch.from_numpy(track_df['heading'].values).float()
+            heading[agent_idx, agent_steps] = torch.from_numpy(track_df['heading'][:int(agent_steps.max()+1)].values).float()
             velocity[agent_idx, agent_steps, :2] = torch.from_numpy(np.stack([track_df['velocity_x'].values,
                                                                               track_df['velocity_y'].values],
                                                                              axis=-1)).float()
@@ -530,7 +534,6 @@ class ArgoverseV2Dataset(Dataset):
         if ((os.path.isdir(self.raw_dir) and len(self.raw_file_names) == len(self)) or
                 (os.path.isdir(self.processed_dir) and len(self.processed_file_names) == len(self))):
             return
-        print("Fake Downloading still")
         # self._processed_file_names = []
         # self.download()
 
@@ -539,9 +542,9 @@ class ArgoverseV2Dataset(Dataset):
         self._num_samples = len(self.processed_file_names)
         
         # if complete processed files exist, skip processing
-        if os.path.isdir(self.processed_dir) and len(self.processed_file_names) == len(self):
-            print('Processed files already exist, skipping processing.', file=sys.stderr)
-            return
+        # if os.path.isdir(self.processed_dir) and len(self.processed_file_names) == len(self):
+        #     print('Processed files already exist, skipping processing.', file=sys.stderr)
+        #     return
         if reset_preprocess:
             print('Resetting processed files...', file=sys.stderr)
             if os.path.isdir(self.processed_dir):

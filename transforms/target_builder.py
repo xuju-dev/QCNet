@@ -26,7 +26,7 @@ class TargetBuilder(BaseTransform):
         self.num_historical_steps = num_historical_steps
         self.num_future_steps = num_future_steps
 
-    def __call__(self, data: HeteroData) -> HeteroData:
+    def forward(self, data: HeteroData) -> HeteroData:
         origin = data['agent']['position'][:, self.num_historical_steps - 1]
         theta = data['agent']['heading'][:, self.num_historical_steps - 1]
         cos, sin = theta.cos(), theta.sin()

@@ -13,6 +13,7 @@
 # limitations under the License.
 from argparse import ArgumentParser
 
+import torch
 import pytorch_lightning as pl
 from torch_geometric.loader import DataLoader
 
@@ -34,9 +35,11 @@ if __name__ == '__main__':
     parser.add_argument('--ckpt_path', type=str, required=True)
     args = parser.parse_args()
 
+    device = torch.device("cpu")
+
     model = {
         'QCNet': QCNet,
-    }[args.model].load_from_checkpoint(checkpoint_path=args.ckpt_path)
+    }[args.model].load_from_checkpoint(checkpoint_path=args.ckpt_path, map_location=device)
     test_dataset = {
         'argoverse_v2': ArgoverseV2Dataset,
     }[model.dataset](root=args.root, split='test')

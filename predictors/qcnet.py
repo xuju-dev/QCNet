@@ -11,11 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import os
+
 from itertools import chain
 from itertools import compress
 from pathlib import Path
 from typing import Optional
 
+import pandas as pd
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
@@ -183,7 +186,7 @@ class QCNet(pl.LightningModule):
         pi = pred['pi']
         gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)  # e.g. [42, 60, 3]
         l2_norm = (torch.norm(traj_propose[..., :self.output_dim] -
-                              gt[:, self.num_historical_steps:, :self.output_dim].unsqueeze(1), p=2, dim=-1) * reg_mask.unsqueeze(1)).sum(dim=-1)
+                              gt[..., :self.output_dim].unsqueeze(1), p=2, dim=-1) * reg_mask.unsqueeze(1)).sum(dim=-1)
         best_mode = l2_norm.argmin(dim=-1)
         traj_propose_best = traj_propose[torch.arange(traj_propose.size(0)), best_mode]
         traj_refine_best = traj_refine[torch.arange(traj_refine.size(0)), best_mode]
@@ -231,16 +234,16 @@ class QCNet(pl.LightningModule):
         pi = pred['pi']
         gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)
         l2_norm = (torch.norm(traj_propose[..., :self.output_dim] -
-                              gt[:, self.num_historical_steps:, :self.output_dim].unsqueeze(1), p=2, dim=-1) * reg_mask.unsqueeze(1)).sum(dim=-1)
+                              gt[..., :self.output_dim].unsqueeze(1), p=2, dim=-1) * reg_mask.unsqueeze(1)).sum(dim=-1)
         best_mode = l2_norm.argmin(dim=-1)
         traj_propose_best = traj_propose[torch.arange(traj_propose.size(0)), best_mode]
         traj_refine_best = traj_refine[torch.arange(traj_refine.size(0)), best_mode]
         reg_loss_propose = self.reg_loss(traj_propose_best,
-                                         gt[:, self.num_historical_steps:, :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
+                                         gt[..., :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
         reg_loss_propose = reg_loss_propose.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
         reg_loss_propose = reg_loss_propose.mean()
         reg_loss_refine = self.reg_loss(traj_refine_best,
-                                        gt[:, self.num_historical_steps:, :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
+                                        gt[..., :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
         reg_loss_refine = reg_loss_refine.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
         reg_loss_refine = reg_loss_refine.mean()
         cls_loss = self.cls_loss(pred=traj_refine[:, :, -1:].detach(),
@@ -330,9 +333,12 @@ class QCNet(pl.LightningModule):
             raise ValueError('{} is not a valid dataset'.format(self.dataset))
 
     def on_test_end(self):
+        dt = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+        self.submission_dir = "/dev_ws/src/tam_deep_prediction/models/QCNet/QCNet/submissions"
+        os.makedirs(self.submission_dir, exist_ok=True)
         if self.dataset == 'argoverse_v2':
             ChallengeSubmission(self.test_predictions).to_parquet(
-                Path(self.submission_dir) / f'{self.submission_file_name}.parquet')
+                Path(self.submission_dir) / f"{self.submission_file_name}_{dt}.parquet")
         else:
             raise ValueError('{} is not a valid dataset'.format(self.dataset))
 
@@ -400,6 +406,6 @@ class QCNet(pl.LightningModule):
         parser.add_argument('--lr', type=float, default=5e-4)
         parser.add_argument('--weight_decay', type=float, default=1e-4)
         parser.add_argument('--T_max', type=int, default=64)
-        parser.add_argument('--submission_dir', type=str, default='./')
-        parser.add_argument('--submission_file_name', type=str, default='submission')
+        parser.add_argument('--submission_dir', type=str, default='./submission')
+        parser.add_argument('--submission_file_name', type=str, default='qcnet_sim_inference')
         return parent_parser
