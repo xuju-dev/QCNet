@@ -100,7 +100,7 @@ if __name__ == "__main__":
     parser.add_argument('--model', type=str, default='QCNet')
     parser.add_argument('--ckpt_path', type=str, required=True)
     parser.add_argument('--root', type=str, default='/dev_ws/src/tam_deep_prediction/data/raceverse-small-v2')
-    parser.add_argument('--output_dir', type=str, default='/dev_ws/src/tam_deep_prediction/models/QCNet/QCNet/visualizations/predictions')
+    parser.add_argument('--output_dir', type=str, default='/dev_ws/src/tam_deep_prediction/models/QCNet/QCNet/visualizations/inference')
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--pin_memory', action='store_true')
